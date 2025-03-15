@@ -99,10 +99,11 @@ class Client(DiscordClient):
             embed.set_thumbnail(url=videos[0].thumbnail_url)
             for index, video in enumerate(videos, start=1):
                 embed.add_field(name="", value=f"{index}) {video.label}", inline=False)
-            await message.channel.send(
+            response = await message.channel.send(
                 embed=embed,
                 view=PlaySelector(message=message, videos=videos, client=self),
             )
+            await response.delete(delay=10)
             return
         await self.handle_resume(message=message, command=command)
 
