@@ -64,8 +64,9 @@ class YoutubeApi:
     def search(self, query: str, max_results: int = 5, region_code: str = 'AR') -> list[Video]:
         self.refresh_access_token()
         logger.info(f'Searching for "{query}"')
-        search = self.oauth_client.search.list(q=query, part='snippet', maxResults=max_results, regionCode=region_code)
-        results = self.get_video_content_details(video_ids=[item.id.videoId for item in search.items])
+        search = self.oauth_client.search.list(q=query, part='snippet', maxResults=20, regionCode=region_code)
+        video_ids = [item.id.videoId for item in search.items if item.id.videoId is not None][:max_results]
+        results = self.get_video_content_details(video_ids=video_ids)
         logger.info(f'Search results for "{query}". Found {len(results)} videos')
         return results
 
