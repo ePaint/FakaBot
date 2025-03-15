@@ -119,7 +119,6 @@ class PlaySelector(View):
         logger.info(f"Button {button.label} clicked by {interaction.user}. Video selected: {video}")
         await interaction.response.send_message(f"Video seleccionado: {video.label}", ephemeral=True)
         await self.client.add_to_queue(video=video, message=self.source_message)
-        await asyncio.sleep(5)
         await interaction.delete_original_response()
         await interaction.message.delete()
 
