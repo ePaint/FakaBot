@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import random
 from datetime import datetime
 
@@ -19,7 +20,6 @@ class Client(DiscordClient):
         self.queue = []
         self.current_video = None
         self.voice_client = None
-        self.channel = None
         self.handlers = {
             Action.PLAY: self.handle_play,
             Action.PAUSE: self.handle_pause,
@@ -35,19 +35,10 @@ class Client(DiscordClient):
 
     async def on_ready(self):
         logger.info(f"Logged on as {self.user}!")
-        self.channel = discord.utils.get(self.get_all_channels(), name="faka-dj")
 
     async def on_message(self, message: Message):
         command = await self.get_command(message=message)
         await self.handle_command(message=message, command=command)
-
-    async def on_voice_state_update(self, member, before, after):
-        # Check if the bot itself disconnected from a voice channel
-        if member == self.user and before.channel is not None and after.channel is None:
-            logger.warning(
-                f"The bot disconnected from voice channel: {before.channel.name}"
-            )
-            self.voice_client = None
 
     async def get_command(self, message: Message) -> Command | None:
         if message.author == self.user:
@@ -85,15 +76,18 @@ class Client(DiscordClient):
 
     async def handle_play(self, message: Message, command: Command):
         if command.is_youtube_playlist():
+            logger.info(f"Command is a playlist: {command.query}")
             videos = YOUTUBE_API.get_playlist_videos_from_url(url=command.query)
             for video in videos:
                 await self.add_to_queue(video=video, message=message)
             return
         elif command.is_youtube_video():
-            video = YOUTUBE_API.get_video_from_url(url=command.query)
+            logger.info(f"Command is a video: {command.query}")
+            video = YOUTUBE_API.get_video_from_id(video_id=command.get_youtube_video_id())
             await self.add_to_queue(video=video, message=message)
             return
         elif command.query != "":
+            logger.info(f"Command is a search: {command.query}")
             videos: list[Video] = YOUTUBE_API.search(query=command.query)
             embed = Embed(title="Encontré estas canciones:")
             embed.set_thumbnail(url=videos[0].thumbnail_url)
@@ -128,7 +122,7 @@ class Client(DiscordClient):
         if (self.voice_client is None or not self.voice_client.is_playing()) and self.queue:
             if self.voice_client is None and message.author.voice is not None:
                 self.voice_client = await message.author.voice.channel.connect()
-            await self.play_next_in_queue()
+            await self.play_next_in_queue(message=message)
 
     async def handle_stop(self, message: Message, command: Command):
         embed = Embed(title="Parando canción")
@@ -146,7 +140,7 @@ class Client(DiscordClient):
         if self.voice_client is None and message.author.voice is not None:
             self.voice_client = await message.author.voice.channel.connect()
         self.voice_client.stop()
-        await self.play_next_in_queue()
+        await self.play_next_in_queue(message=message)
 
     async def handle_queue(self, message: Message, command: Command):
         embed = Embed(title="Cola de canciones")
@@ -167,7 +161,7 @@ class Client(DiscordClient):
             self.voice_client.stop()
         await message.channel.send("Cola de canciones limpiada")
 
-    async def handle_disconnect(self, **kwargs):
+    async def handle_disconnect(self, message: Message, command: Command = None):
         if self.voice_client is not None:
             await self.voice_client.disconnect()
             self.voice_client = None
@@ -183,7 +177,7 @@ class Client(DiscordClient):
             "gg ez",
             "nv",
         ]
-        await self.channel.send(random.choice(goodbye_messages))
+        await message.channel.send(random.choice(goodbye_messages))
 
     async def handle_help(self, message: Message, command: Command):
         embed = Embed(title="Comandos disponibles")
@@ -198,9 +192,14 @@ class Client(DiscordClient):
             self.voice_client = await message.author.voice.channel.connect()
         self.queue.append(video)
         if len(self.queue) == 1:
-            await self.play_next_in_queue()
+            await self.play_next_in_queue(message=message)
 
-    async def play_next_in_queue(self, *args, **kwargs):
+    def _audio_finish_callback(self, error):
+        if error:
+            logger.error(f"Error occurred: {error}")
+        asyncio.run(self.play_next_in_queue())
+
+    async def play_next_in_queue(self, message: Message):
         if self.voice_client is None:
             return
         if self.voice_client.is_playing():
@@ -210,21 +209,18 @@ class Client(DiscordClient):
             return
         self.current_video = self.queue.pop(0)
         audio_source = FFmpegPCMAudio(YOUTUBE_API.get_video_file(video=self.current_video))
-        self.voice_client.play(audio_source, after=self._audio_finish_callback)
+        self.voice_client.play(audio_source, after=functools.partial(self._audio_finish_callback, message=message))
         embed = Embed(title="Reproduciendo canción")
         embed.add_field(name="", value=self.current_video.label, inline=False)
-        await self.channel.send(embed=embed)
+        await message.channel.send(embed=embed)
         if self.last_playing is None:
             self.last_playing = datetime.now()
-            asyncio.create_task(self.inactivity_check())
+            asyncio.create_task(self.inactivity_check(message=message))
 
-    async def inactivity_check(self):
+    async def inactivity_check(self, message: Message):
         while True:
-            await asyncio.sleep(60)
+            await asyncio.sleep(300)
             if self.voice_client is not None and not self.voice_client.is_playing():
-                await self.handle_disconnect()
+                await self.handle_disconnect(message=message)
 
-    def _audio_finish_callback(self, error):
-        if error:
-            logger.error(f"Error occurred: {error}")
-        asyncio.run(self.play_next_in_queue())
+

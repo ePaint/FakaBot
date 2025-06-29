@@ -1,4 +1,5 @@
 import re
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -10,12 +11,27 @@ class Command(BaseModel):
     query: str
 
     def is_youtube_video(self) -> bool:
-        youtube_regex = r"(https?://)?(www\.)?(youtube|youtu|youtube-nocookie)\.(com|be)/.*(v|e(?:mbed)?)\S+"
+        youtube_regex = r"^(https?://)?(www\.)?(youtube\.com|youtu\.be|youtube-nocookie\.com)/(watch\?v=|embed/|v/|.+)?[A-Za-z0-9_-]{11}"
         return bool(re.match(youtube_regex, self.query))
 
     def is_youtube_playlist(self) -> bool:
         playlist_regex = r"(https?://)?(www\.)?(youtube|youtu|youtube-nocookie)\.(com|be)/(watch\?v=[\w-]+&list=[\w-]+|playlist\?list=[\w-]+)"
         return bool(re.match(playlist_regex, self.query))
+
+    def get_youtube_video_id(self) -> Optional[str]:
+        patterns = [
+            r"(?:https?://)?(?:www\.)?youtube\.com/watch\?v=([A-Za-z0-9_-]{11})",
+            r"(?:https?://)?(?:www\.)?youtu\.be/([A-Za-z0-9_-]{11})",
+            r"(?:https?://)?(?:www\.)?youtube\.com/embed/([A-Za-z0-9_-]{11})",
+            r"(?:https?://)?(?:www\.)?youtube\.com/v/([A-Za-z0-9_-]{11})",
+        ]
+
+        for pattern in patterns:
+            match = re.match(pattern, self.query)
+            if match:
+                return match.group(1)
+
+        return None
 
 
 COMMANDS = {

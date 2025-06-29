@@ -6,7 +6,7 @@ from urllib.parse import urlparse, parse_qs
 import yt_dlp
 
 from datetime import datetime, timedelta
-from pyyoutube import Client
+from pyyoutube import Client, PyYouTubeException
 from logger import logger
 from settings import SETTINGS
 from youtube_api.models import Video
@@ -17,9 +17,6 @@ class YoutubeApi:
         self.channel_id = channel_id
         self.api_key_client = Client(api_key=api_key)
         self.oauth_client = Client(client_id=client_id, client_secret=client_secret)
-        # print(self.oauth_client.get_authorize_url())
-        # print(self.oauth_client.generate_access_token(code='4/0AQSTgQEyc6ssBCM6K9zdF7W1WlCxhkhcxP8CQefPOhxTu3edhU2Jm1517ajJH885u2VNkQ'))
-        # exit()
         self.refresh_token = refresh_token
         self.access_token = None
         self.expire_datetime = None
@@ -51,6 +48,7 @@ class YoutubeApi:
         if self.expire_datetime is None or self.expire_datetime < datetime.now():
             logger.info('Refreshing access token')
             access_token_object = self.oauth_client.refresh_access_token(refresh_token=self.refresh_token)
+            print(access_token_object)
             self.expire_datetime = datetime.now() + timedelta(seconds=access_token_object.expires_in)
             self.access_token = access_token_object.access_token
             self.oauth_client.access_token = self.access_token
@@ -68,15 +66,14 @@ class YoutubeApi:
         video_ids = [item.id.videoId for item in search.items if item.id.videoId is not None][:max_results]
         results = self.get_video_content_details(video_ids=video_ids)
         logger.info(f'Search results for "{query}". Found {len(results)} videos')
+        print(results)
         return results
 
-    def get_video_from_url(self, url: str) -> Video:
+    def get_video_from_id(self, video_id: str) -> Video:
         self.refresh_access_token()
-        logger.info(f"Getting video from URL {url}")
-        parsed_url = urlparse(url)
-        video_id = parse_qs(parsed_url.query)["v"][0]
+        logger.info(f"Getting video from ID {video_id}")
         video = self.get_video_content_details(video_ids=[video_id])[0]
-        logger.info(f'Got video from URL {url}')
+        logger.info(f'Got video from ID {video_id}')
         return video
 
     def get_all_videos_in_playlist(self, playlist_id: str) -> list[str]:
@@ -86,7 +83,11 @@ class YoutubeApi:
         while do_request:
             self.refresh_access_token()
             logger.info(f'Getting videos from playlist {playlist_id}')
-            playlist = self.oauth_client.playlistItems.list(playlist_id=playlist_id, part='snippet', max_results=50, page_token=next_page_token)
+            try:
+                playlist = self.oauth_client.playlistItems.list(playlist_id=playlist_id, part='snippet', max_results=50, page_token=next_page_token)
+            except PyYouTubeException as e:
+                logger.error(f'Error getting videos from playlist {playlist_id}: {e}')
+                break
             video_ids += [item.snippet.resourceId.videoId for item in playlist.items]
             next_page_token = playlist.nextPageToken
             do_request = next_page_token is not None
