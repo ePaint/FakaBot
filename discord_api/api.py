@@ -194,10 +194,8 @@ class Client(DiscordClient):
         if len(self.queue) == 1:
             await self.play_next_in_queue(message=message)
 
-    def _audio_finish_callback(self, error):
-        if error:
-            logger.error(f"Error occurred: {error}")
-        asyncio.run(self.play_next_in_queue())
+    def _audio_finish_callback(self, message: Message):
+        asyncio.run(self.play_next_in_queue(message=message))
 
     async def play_next_in_queue(self, message: Message):
         if self.voice_client is None:
